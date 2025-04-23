@@ -1,0 +1,26 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: cleanup-namespaces
+spec:
+  # Запуск каждый день в полночь, к примеру:
+  schedule: "0 0 * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+            - name: cleaner
+              image: bitnami/kubectl:latest
+              command: ["/bin/sh","-c"]
+              args:
+                - |
+                  echo "Starting cleanup..."
+                  # Пример: искать неймспейсы, начинающиеся на 'feature-'
+                  for ns in $(kubectl get ns -o jsonpath='{.items[*].metadata.name}' | tr ' ' '\n' | grep 'feature-'); do
+                    # Логика определения "возраста" (по аннотациям, датам, тегам и т.д.)
+                    # Упростим: удаляем все, подходящие под шаблон
+                    echo "Deleting namespace $ns"
+                    kubectl delete ns $ns
+                  done
+          restartPolicy: OnFailure

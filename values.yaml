@@ -1,0 +1,31 @@
+gitlabUrl: https://gitlab.com
+runnerRegistrationToken: "glrt-bzoxCnA6MTRzaWZoCnQ6Mwp1OmVuZHUzILDBEWx4dGugHwY-l0C3hxA.1j1oxc7df"
+
+rbac:
+  create: true
+
+serviceAccount:
+  create: true
+  name: k8s-runner
+
+runners:
+  name: "k8s-runner"
+  tags: "kubernetes,kaniko"
+  executor: kubernetes
+  config: |
+    [[runners]]
+      name = "k8s-runner"
+      url = "https://gitlab.com"
+      token = "glrt-bzoxCnA6MTRzaWZoCnQ6Mwp1OmVuZHUzILDBEWx4dGugHwY-l0C3hxA.1j1oxc7df"
+      executor = "kubernetes"
+      [runners.kubernetes]
+        namespace = "gitlab2-runner"
+        image = "gcr.io/kaniko-project/executor:debug"
+        privileged = true
+        cpu_request = "100m"
+        memory_request = "128Mi"
+        cpu_limit = "500m"
+        memory_limit = "512Mi"
+        [[runners.kubernetes.volumes.empty_dir]]
+          name = "docker-cfg"
+          mount_path = "/kaniko/.docker"

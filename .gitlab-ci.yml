@@ -1,0 +1,97 @@
+stages:
+  - build
+  - deploy
+  - cleanup
+
+variables:
+  DOCKER_REPO: "docker.io/tatyanalebedeva/test"
+  DOCKER_CONFIG: "/kaniko/.docker/"
+
+# ========== BUILD ==========
+
+build-and-push:
+  stage: build
+  image:
+    name: gcr.io/kaniko-project/executor:debug
+    entrypoint: [""]
+  tags:
+    - kubernetes
+  script:
+    - echo "{\"auths\":{\"https://index.docker.io/v1/\":{\"username\":\"$DOCKERHUB_USER\",\"password\":\"$DOCKERHUB_PASS\"}}}" > /kaniko/.docker/config.json
+    - >
+      /kaniko/executor
+      --context $CI_PROJECT_DIR
+      --dockerfile $CI_PROJECT_DIR/Dockerfile
+      --destination $DOCKER_REPO:$CI_COMMIT_REF_SLUG
+      --cache=false
+  rules:
+    - if: '$CI_COMMIT_BRANCH'
+      when: always
+
+# ========== DEPLOY MAIN ==========
+
+deploy-main:
+  stage: deploy
+  image: bitnami/kubectl:latest
+  tags:
+    - kubernetes
+  script:
+    - |
+      NAMESPACE="prod-namespace"
+      IMAGE_TAG="latest"
+
+      echo "Deploying to $NAMESPACE with image tag $IMAGE_TAG"
+      kubectl create namespace $NAMESPACE --dry-run=client -o yaml | kubectl apply -f -
+      sed "s|DOCKER_USERNAME/PROJECT_NAME:latest|$DOCKER_REPO:$IMAGE_TAG|g" k8s/deployment.yaml |
+        kubectl -n $NAMESPACE apply -f -
+      kubectl -n $NAMESPACE apply -f k8s/service.yaml
+  environment:
+    name: production
+    url: http://localhost
+  needs: [build-and-push]
+  rules:
+    - if: '$CI_COMMIT_REF_NAME == "main"'
+
+# ========== DEPLOY FEATURE ==========
+
+deploy-feature:
+  stage: deploy
+  image: bitnami/kubectl:latest
+  tags:
+    - kubernetes
+  script:
+    - |
+      NAMESPACE="feature-${CI_COMMIT_REF_SLUG}"
+      IMAGE_TAG="$CI_COMMIT_REF_SLUG"
+
+      echo "Deploying to $NAMESPACE with image tag $IMAGE_TAG"
+      kubectl create namespace $NAMESPACE --dry-run=client -o yaml | kubectl apply -f -
+      sed "s|DOCKER_USERNAME/PROJECT_NAME:latest|$DOCKER_REPO:$IMAGE_TAG|g" k8s/deployment.yaml |
+        kubectl -n $NAMESPACE apply -f -
+      kubectl -n $NAMESPACE apply -f k8s/service.yaml
+  environment:
+    name: review/$CI_COMMIT_REF_NAME
+    url: http://localhost
+    on_stop: cleanup
+  needs: [build-and-push]
+  rules:
+    - if: '$CI_COMMIT_REF_NAME != "main"'
+
+# ========== CLEANUP ==========
+
+cleanup:
+  stage: cleanup
+  image: bitnami/kubectl:latest
+  tags:
+    - kubernetes
+  script:
+    - NAMESPACE="feature-${CI_COMMIT_REF_SLUG}"
+    - echo "Deleting namespace $NAMESPACE"
+    - kubectl delete namespace $NAMESPACE || true
+  environment:
+    name: review/$CI_COMMIT_REF_NAME
+    action: stop
+  rules:
+    - if: '$CI_COMMIT_REF_NAME != "main"'
+      when: delayed
+      start_in: 2 hours
